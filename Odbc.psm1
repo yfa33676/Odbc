@@ -9,14 +9,29 @@ function Open-OdbcConnection {
         [parameter(Mandatory, Position = 0)]
         [string]$DSN,
         [parameter(Mandatory, Position = 1)]
-        [string]$UID,
-        [parameter(Mandatory, Position = 2)]
-        [string]$PWD
+        [System.Management.Automation.PSCredential]$Credential
     )
     process{
+        $UID = $Credential.UserName
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password)
+        $PWD = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+
         $OdbcConnection.ConnectionString = "DSN=$DSN;UID=$UID;PWD=$PWD"
         $OdbcConnection.Open()
-        $OdbcConnection
+    }
+}
+
+function Get-OdbcSchema {
+    param(
+        [parameter(Mandatory, Position = 0)]
+        [validateset("Columns", "Tables", "Views")]
+        [string]$CollectionName,
+        [string]$SchemaName,
+        [string]$TableName
+    )
+    process{
+        $OdbcConnection.GetSchema($CollectionName, ($OdbcConnection.Database, $SchemaName, $TableName))
     }
 }
 
@@ -34,7 +49,7 @@ function Close-OdbcConnection {
 
 function Set-OdbcCommand {
     param(
-        [parameter(Position = 0)]
+        [parameter(ValueFromPipeline, Position = 0)]
         [string]$CommandText,
         [switch]$Transaction,
         [switch]$Commit,
@@ -94,5 +109,119 @@ function Get-OdbcCommand {
     process{
         # SQLƒRƒ}ƒ“ƒh
         $OdbcCommand
+    }
+}
+
+function ConvertTo-Sql {
+    [OutputType([string])]
+    param(
+        [parameter(ValueFromPipeline)]
+        [PSCustomObject]$InputObject,
+        [switch]$NoColumnName,
+        [switch]$Trim,
+        [parameter(Mandatory, Position = 0)]
+        [string]$TableName,
+        [validateset("Insert", "Update", "Delete", "Select")]
+        [string]$StatementType = "Insert",
+        [string[]]$Key,
+        [string]$Delimiter = ""
+    )
+    process{
+        $Properties = @($InputObject.PSObject.Properties)
+        $NotKeyProperties = @($Properties | Where-Object {$_.Name -NotIn $Key})
+        $KeyProperties = @($Properties | Where-Object {$_.Name -In $Key})
+        if($StatementType -EQ "Insert"){
+            $Statement = "INSERT INTO"
+        } elseif($StatementType -EQ "Update"){
+            $Statement = "UPDATE"
+        } elseif($StatementType -EQ "Delete"){
+            $Statement = "DELETE FROM"
+        } elseif($StatementType -EQ "Select"){
+            $Statement = "SELECT * FROM"
+        }
+        $Statement += " "
+        $Statement += $TableName
+        if($StatementType -EQ "Insert"){
+            if(!$NoColumnName){
+                $Statement += "("
+                for($i = 0; $i -LT $Properties.Count; $i++){
+                    if($i -NE 0){
+                        $Statement += ","
+                    }
+                    $Statement += $Properties[$i].Name
+                }
+                $Statement += ")"
+            }
+            $Statement += " "
+            $Statement += "VALUES"
+            $Statement += "("
+            for($i = 0; $i -LT $Properties.Count; $i++){
+                if($i -NE 0){
+                    $Statement += ","
+                }
+                if($Properties[$i].Value -is [string]){
+                    $Statement += "'"
+                    if($Trim){
+                        $Statement += $Properties[$i].Value.Trim()
+                    } else {
+                        $Statement += $Properties[$i].Value
+                    }
+                    $Statement += "'"
+                } else {
+                    $Statement += $Properties[$i].Value
+                }
+            }
+            $Statement += ")"
+        }
+        if($StatementType -EQ "Update"){
+            $Statement += " "
+            $Statement += "SET"
+            $Statement += " "
+            for($i = 0; $i -LT $NotKeyProperties.Count; $i++){
+                if($i -NE 0){
+                    $Statement += ","
+                }
+                $Statement += $NotKeyProperties[$i].Name
+                $Statement += " = "
+                if($NotKeyProperties[$i].Value -is [string]){
+                    $Statement += "'"
+                    if($Trim){
+                        $Statement += $NotKeyProperties[$i].Value.Trim()
+                    } else {
+                        $Statement += $NotKeyProperties[$i].Value
+                    }
+                    $Statement += "'"
+                } else {
+                    $Statement += $NotKeyProperties[$i].Value
+                }
+            }
+        }
+        
+        if($StatementType -EQ "Update" -Or $StatementType -EQ "Delete" -or $StatementType -EQ "Select"){
+            $Statement += " "
+            $Statement += "WHERE"
+            $Statement += " "
+            for($i = 0; $i -LT $KeyProperties.Count; $i++){
+                if($i -NE 0){
+                    $Statement += " AND "
+                }
+                $Statement += $KeyProperties[$i].Name
+                $Statement += " = "
+                if($KeyProperties[$i].Value -is [string]){
+                    $Statement += "'"
+                    if($Trim){
+                        $Statement += $KeyProperties[$i].Value.Trim()
+                    } else {
+                        $Statement += $KeyProperties[$i].Value
+                    }
+                    $Statement += "'"
+                } else {
+                    $Statement += $KeyProperties[$i].Value
+                }
+            }
+        }
+        
+        $Statement += $Delimiter
+        $Statement | Write-Output
     }
 }

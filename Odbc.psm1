@@ -119,17 +119,26 @@ function ConvertTo-Sql {
         [PSCustomObject]$InputObject,
         [switch]$NoColumnName,
         [switch]$Trim,
-        [parameter(Mandatory, Position = 0)]
+        [parameter(Mandatory)]
         [string]$TableName,
         [validateset("Insert", "Update", "Delete", "Select")]
         [string]$StatementType = "Insert",
-        [string[]]$Key,
+        [string[]]$SetProperty,
+        [string[]]$WhereProperty,
         [string]$Delimiter = ""
     )
     process{
         $Properties = @($InputObject.PSObject.Properties)
-        $NotKeyProperties = @($Properties | Where-Object {$_.Name -NotIn $Key})
-        $KeyProperties = @($Properties | Where-Object {$_.Name -In $Key})
+        if($SetProperty){
+            $SetProperties = @($Properties | Where-Object {$_.Name -In $SetProperty})
+        } else {
+            $SetProperties = @($Properties)
+        }
+        if($WhereProperty){
+            $WhereProperties = @($Properties | Where-Object {$_.Name -In $WhereProperty})
+        } else {
+            $WhereProperties = @($Properties)
+        }
         if($StatementType -EQ "Insert"){
             $Statement = "INSERT INTO"
         } elseif($StatementType -EQ "Update"){
@@ -177,22 +186,22 @@ function ConvertTo-Sql {
             $Statement += " "
             $Statement += "SET"
             $Statement += " "
-            for($i = 0; $i -LT $NotKeyProperties.Count; $i++){
+            for($i = 0; $i -LT $SetProperties.Count; $i++){
                 if($i -NE 0){
                     $Statement += ","
                 }
-                $Statement += $NotKeyProperties[$i].Name
+                $Statement += $SetProperties[$i].Name
                 $Statement += " = "
-                if($NotKeyProperties[$i].Value -is [string]){
+                if($SetProperties[$i].Value -is [string]){
                     $Statement += "'"
                     if($Trim){
-                        $Statement += $NotKeyProperties[$i].Value.Trim()
+                        $Statement += $SetProperties[$i].Value.Trim()
                     } else {
-                        $Statement += $NotKeyProperties[$i].Value
+                        $Statement += $SetProperties[$i].Value
                     }
                     $Statement += "'"
                 } else {
-                    $Statement += $NotKeyProperties[$i].Value
+                    $Statement += $SetProperties[$i].Value
                 }
             }
         }
@@ -201,22 +210,22 @@ function ConvertTo-Sql {
             $Statement += " "
             $Statement += "WHERE"
             $Statement += " "
-            for($i = 0; $i -LT $KeyProperties.Count; $i++){
+            for($i = 0; $i -LT $WhereProperties.Count; $i++){
                 if($i -NE 0){
                     $Statement += " AND "
                 }
-                $Statement += $KeyProperties[$i].Name
+                $Statement += $WhereProperties[$i].Name
                 $Statement += " = "
-                if($KeyProperties[$i].Value -is [string]){
+                if($WhereProperties[$i].Value -is [string]){
                     $Statement += "'"
                     if($Trim){
-                        $Statement += $KeyProperties[$i].Value.Trim()
+                        $Statement += $WhereProperties[$i].Value.Trim()
                     } else {
-                        $Statement += $KeyProperties[$i].Value
+                        $Statement += $WhereProperties[$i].Value
                     }
                     $Statement += "'"
                 } else {
-                    $Statement += $KeyProperties[$i].Value
+                    $Statement += $WhereProperties[$i].Value
                 }
             }
         }
